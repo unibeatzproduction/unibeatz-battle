@@ -517,6 +517,7 @@
       </div>
 
       <div id="beatAdminContent" style="display:none;">
+        <div id="ubNotificationAdmin"></div>
         <div class="beat-form-grid">
           <input id="adminBeatName" placeholder="Beat name"/>
           <input id="adminBeatBpm" placeholder="BPM"/>
@@ -2381,10 +2382,16 @@ setTimeout(() => {
     startBattleBeatListener();
   }
 }, 1500);
-  <div id="ubNotificationsPanel" style="display:none">
+</script>
+
+<!-- NOTIFICATIONS PANEL -->
+<div id="ubNotificationsPanel" class="ub-notifications-panel" style="display:none">
+  <div class="ub-notifications-head">
+    <strong>Notifications</strong>
+    <button type="button" onclick="document.getElementById('ubNotificationsPanel').style.display='none'">✕</button>
+  </div>
   <div id="ubNotificationsList"></div>
 </div>
-</script>
 
 <script type="module" src="/unibeatz-notifications.js"></script>
 <script src="unifreestyle-core.js"></script>
