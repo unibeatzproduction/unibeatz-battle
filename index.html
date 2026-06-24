@@ -1405,8 +1405,12 @@ const ROLE_STATS = {
 };
 
 function refreshProfile() {
+  if(window.ubProfile && typeof window.ubProfile.render === 'function') {
+    window.ubProfile.render();
+    return;
+  }
   if(!currentUser) { goToPage('splash'); return; }
-  const u = currentUser;
+}
 
   document.getElementById('pfTopTitle').textContent = '@' + u.username;
 
