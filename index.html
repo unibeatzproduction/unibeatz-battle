@@ -1261,14 +1261,13 @@ function handleLogin() {
   goToPage('home');
 }
 
-async function socialAuth(provider) {
-  if(provider !== 'Google') {
+async async function socialAuth(provider) {
+  if (provider !== 'Google') {
     showToast(`${provider} login coming soon. Use Google or email for now.`);
     return;
   }
 
-  // ═════ REAL GOOGLE SIGN-IN VIA FIREBASE ═════
-  if(!window.UB_FIREBASE || !window.UB_FIREBASE.ready) {
+  if (!window.UB_FIREBASE || !window.UB_FIREBASE.ready) {
     showToast('⚠️ Firebase not loaded. Refresh the page and try again.');
     return;
   }
@@ -1280,69 +1279,112 @@ async function socialAuth(provider) {
     googleProvider.addScope('email');
     googleProvider.addScope('profile');
 
-    const result = await fb.signInWithPopup(fb.auth, googleProvider);
-    const fbUser = result.user;
+    let result = null;
 
-    // Build user data from Google profile
-    const users = getUsers();
-    const email = fbUser.email.toLowerCase();
-    let userData = null;
-
-    // Check if this user already exists locally
-    for(const k in users) {
-      if(users[k].email === email) { userData = users[k]; break; }
+    try {
+      result = await fb.signInWithPopup(fb.auth, googleProvider);
+    } catch (popupErr) {
+      console.warn('Google popup failed, using redirect:', popupErr);
+      showToast('Redirecting to Google...');
+      await fb.signInWithRedirect(fb.auth, googleProvider);
+      return;
     }
 
-    if(!userData) {
-      // First time — create new user
-      const username = email.split('@')[0].replace(/[^a-z0-9_]/g, '');
-      userData = {
-        uid: fbUser.uid,
-        name: fbUser.displayName || email.split('@')[0],
-        username: username,
-        email: email,
-        password: '', // No password — Google handles it
-        photo: fbUser.photoURL || '',
-        avatar: '🎤',
-        bio: '',
-        role: 'artist',
-        city: '',
-        points: 0, wins: 0, losses: 0, battles: 0, votes: 0, accuracy: 0, followers: 0, following: 0,
-        joined: new Date().toLocaleDateString('en-US', {month:'short', year:'numeric'}),
-        verified: true, // Google emails are auto-verified
-        unipackTier: 'free',
-        signInProvider: 'google',
-      };
-      users[username] = userData;
-      saveUsers(users);
+    if (result && result.user) {
+      await finishGoogleLogin(result.user);
     }
-
-    // Update photo from Google if missing
-    if(!userData.photo && fbUser.photoURL) {
-      userData.photo = fbUser.photoURL;
-      const allUsers = getUsers();
-      allUsers[userData.username] = userData;
-      saveUsers(allUsers);
-    }
-
-    currentUser = userData;
-    localStorage.setItem('ub_user', JSON.stringify(currentUser));
-    showToast(`✅ Welcome, ${userData.name.split(' ')[0]}!`);
-    goToPage('home');
-
-  } catch(err) {
+  } catch (err) {
     console.error('Google sign-in error:', err);
-    if(err.code === 'auth/popup-closed-by-user') {
-      showToast('Sign-in cancelled');
-    } else if(err.code === 'auth/popup-blocked') {
-      showToast('⚠️ Popup blocked. Please allow popups and try again.');
-    } else if(err.code === 'auth/unauthorized-domain') {
-      showToast('⚠️ This domain is not authorized in Firebase. Check authorized domains.');
+    if (err.code === 'auth/unauthorized-domain') {
+      showToast('⚠️ This domain is not authorized in Firebase.');
     } else {
       showToast('⚠️ ' + (err.message || 'Google sign-in failed'));
     }
   }
 }
+
+async function finishGoogleLogin(fbUser) {
+  if (!fbUser || !fbUser.email) {
+    showToast('⚠️ Google account did not return an email.');
+    return;
+  }
+
+  const users = getUsers();
+  const email = fbUser.email.toLowerCase();
+  let userData = null;
+
+  for (const k in users) {
+    if (users[k].email === email) {
+      userData = users[k];
+      break;
+    }
+  }
+
+  if (!userData) {
+    let username = email.split('@')[0].replace(/[^a-z0-9_]/g, '') || 'artist';
+    let baseUsername = username;
+    let n = 1;
+
+    while (users[username]) {
+      username = baseUsername + n;
+      n++;
+    }
+
+    userData = {
+      uid: fbUser.uid,
+      name: fbUser.displayName || email.split('@')[0],
+      username: username,
+      email: email,
+      password: '',
+      photo: fbUser.photoURL || '',
+      avatar: '🎤',
+      bio: '',
+      role: 'artist',
+      city: '',
+      points: 0,
+      wins: 0,
+      losses: 0,
+      battles: 0,
+      votes: 0,
+      accuracy: 0,
+      followers: 0,
+      following: 0,
+      joined: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      verified: true,
+      unipackTier: 'free',
+      signInProvider: 'google'
+    };
+
+    users[username] = userData;
+    saveUsers(users);
+  }
+
+  if (!userData.photo && fbUser.photoURL) {
+    userData.photo = fbUser.photoURL;
+    const allUsers = getUsers();
+    allUsers[userData.username] = userData;
+    saveUsers(allUsers);
+  }
+
+  setCurrentUser(userData);
+  showToast(`✅ Welcome, ${userData.name.split(' ')[0]}!`);
+  goToPage('home');
+}
+
+window.addEventListener('load', async function () {
+  if (!window.UB_FIREBASE || !window.UB_FIREBASE.ready) return;
+
+  try {
+    const fb = window.UB_FIREBASE;
+    const result = await fb.getRedirectResult(fb.auth);
+
+    if (result && result.user) {
+      await finishGoogleLogin(result.user);
+    }
+  } catch (err) {
+    console.warn('Google redirect result failed:', err);
+  }
+});
 
 
 // ════════════════════════════════════════
@@ -1419,55 +1461,73 @@ const ROLE_STATS = {
 };
 
 function refreshProfile() {
-  if(window.ubProfile && typeof window.ubProfile.render === 'function') {
+  if (window.ubProfile && typeof window.ubProfile.render === 'function') {
     window.ubProfile.render();
     return;
   }
-  if(!currentUser) { goToPage('splash'); return; }
-}
 
-  document.getElementById('pfTopTitle').textContent = '@' + u.username;
+  if (!currentUser) {
+    goToPage('splash');
+    return;
+  }
 
-  // Avatar: photo if uploaded, else emoji
+  const u = currentUser;
+
+  const topTitle = document.getElementById('pfTopTitle');
+  if (topTitle) topTitle.textContent = '@' + (u.username || 'username');
+
   const avatarEl = document.getElementById('pfAvatar');
-  if(u.photo) {
-    avatarEl.classList.add('has-photo');
-    avatarEl.innerHTML = '<img src="' + u.photo + '" alt="profile"/><div class="pf-avatar-edit">📷</div>';
-  } else {
-    avatarEl.classList.remove('has-photo');
-    avatarEl.innerHTML = u.avatar + '<div class="pf-avatar-edit">📷</div>';
+  if (avatarEl) {
+    if (u.photo) {
+      avatarEl.classList.add('has-photo');
+      avatarEl.innerHTML = '<img src="' + u.photo + '" alt="profile"/><div class="pf-avatar-edit">📷</div>';
+    } else {
+      avatarEl.classList.remove('has-photo');
+      avatarEl.innerHTML = (u.avatar || '🎤') + '<div class="pf-avatar-edit">📷</div>';
+    }
   }
 
-  document.getElementById('pfDisplayName').textContent = u.name;
-  document.getElementById('pfUsername').textContent = '@' + u.username;
+  const displayName = document.getElementById('pfDisplayName');
+  if (displayName) displayName.textContent = u.name || 'Your Name';
 
-  // Badges
+  const username = document.getElementById('pfUsername');
+  if (username) username.textContent = '@' + (u.username || 'username');
+
   const badges = ROLE_BADGES[u.role] || ROLE_BADGES.artist;
-  document.getElementById('pfBadges').innerHTML = badges.map(b => `<span class="pf-badge ${b.cls}">${b.txt}</span>`).join('');
-
-  // About Me — show their story or empty placeholder
-  const aboutEl = document.getElementById('pfAboutText');
-  if(u.bio && u.bio.trim()) {
-    aboutEl.textContent = u.bio;
-    aboutEl.classList.remove('pf-about-empty');
-  } else {
-    aboutEl.textContent = "You haven't added your story yet. Tap 'Edit your story' below to tell people who you are, what your music is about, and where you're from.";
-    aboutEl.classList.add('pf-about-empty');
+  const badgesEl = document.getElementById('pfBadges');
+  if (badgesEl) {
+    badgesEl.innerHTML = badges.map(b => `<span class="pf-badge ${b.cls}">${b.txt}</span>`).join('');
   }
 
-  // Location
-  document.getElementById('pfLocation').textContent = '📍 ' + (u.city || 'UniBeatz World');
+  const aboutEl = document.getElementById('pfAboutText');
+  if (aboutEl) {
+    if (u.bio && u.bio.trim()) {
+      aboutEl.textContent = u.bio;
+      aboutEl.classList.remove('pf-about-empty');
+    } else {
+      aboutEl.textContent = "You haven't added your story yet. Tap 'Edit your story' below to tell people who you are, what your music is about, and where you're from.";
+      aboutEl.classList.add('pf-about-empty');
+    }
+  }
 
-  // Stats
+  const locationEl = document.getElementById('pfLocation');
+  if (locationEl) locationEl.textContent = '📍 ' + (u.city || 'UniBeatz World');
+
   const stats = ROLE_STATS[u.role] || ROLE_STATS.artist;
-  document.getElementById('pfStatsGrid').innerHTML = stats.map(s => {
-    let val = u[s.k] || 0;
-    if(typeof val === 'number' && val >= 1000) val = (val/1000).toFixed(1) + 'K';
-    return `<div class="pf-stat-box"><div class="pf-stat-num">${val}</div><div class="pf-stat-lbl">${s.l}</div></div>`;
-  }).join('');
+  const statsGrid = document.getElementById('pfStatsGrid');
+  if (statsGrid) {
+    statsGrid.innerHTML = stats.map(s => {
+      let val = u[s.k] || 0;
+      if (typeof val === 'number' && val >= 1000) val = (val / 1000).toFixed(1) + 'K';
+      return `<div class="pf-stat-box"><div class="pf-stat-num">${val}</div><div class="pf-stat-lbl">${s.l}</div></div>`;
+    }).join('');
+  }
 
-  document.getElementById('pfUid').textContent = u.uid;
-  document.getElementById('pfJoined').textContent = u.joined;
+  const uidEl = document.getElementById('pfUid');
+  if (uidEl) uidEl.textContent = u.uid || 'UB-000000';
+
+  const joinedEl = document.getElementById('pfJoined');
+  if (joinedEl) joinedEl.textContent = u.joined || '2025';
 }
 
 function toggleFollow(btn) {
